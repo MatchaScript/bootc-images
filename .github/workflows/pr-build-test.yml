@@ -55,6 +55,7 @@ jobs:
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --build-arg BOOTC_BASE=${{ env.BOOTC_BASE }} \
             --tag test-${{ github.event.pull_request.number }} \
             -f ${{ matrix.containerfile }} \
             .

@@ -1,4 +1,5 @@
-FROM ghcr.io/matchascript/fedora-bootc:base-amd64
+ARG BOOTC_BASE=quay.io/fedora/fedora-bootc:latest
+FROM ${BOOTC_BASE}
 RUN dnf install -y hyperv-daemons && \
     dnf clean all
 RUN systemctl enable hypervfcopyd && \
