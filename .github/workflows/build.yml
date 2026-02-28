@@ -31,7 +31,8 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: fedora-bootc
+  FEDORA_IMAGE_NAME: fedora-bootc
+  ASAHI_IMAGE_NAME: asahi-bootc
   BOOTC_BASE: "quay.io/fedora/fedora-bootc:latest"
 
 jobs:
@@ -42,7 +43,8 @@ jobs:
       current_date: ${{ steps.set_date.outputs.current_date }}
       version_id: ${{ steps.get_version.outputs.version_id }}
       branch_name: ${{ steps.set_branch.outputs.branch_name }}
-      registry_prefix: ${{ steps.set_registry.outputs.registry_prefix }}
+      fedora_registry_prefix: ${{ steps.set_registry.outputs.fedora_registry_prefix }}
+      asahi_registry_prefix: ${{ steps.set_registry.outputs.asahi_registry_prefix }}
     steps:
       - uses: actions/checkout@v4
 
@@ -87,7 +89,8 @@ jobs:
         run: |
           REGISTRY="${{ inputs.target_registry || 'ghcr.io' }}"
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          echo "registry_prefix=${REGISTRY}/${OWNER}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+          echo "fedora_registry_prefix=${REGISTRY}/${OWNER}/${{ env.FEDORA_IMAGE_NAME }}" >> $GITHUB_OUTPUT
+          echo "asahi_registry_prefix=${REGISTRY}/${OWNER}/${{ env.ASAHI_IMAGE_NAME }}" >> $GITHUB_OUTPUT
 
   build-base:
     name: Build base bootc image (amd64)
@@ -135,7 +138,7 @@ jobs:
       - name: Push intermediate image
         if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
         env:
-          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
         run: |
           INTERMEDIATE_TAG="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-amd64"
           sudo podman tag temp-base-amd64 "${INTERMEDIATE_TAG}"
@@ -188,7 +191,7 @@ jobs:
       - name: Push intermediate image
         if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
         env:
-          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
         run: |
           INTERMEDIATE_TAG="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-arm64"
           sudo podman tag temp-base-arm64 "${INTERMEDIATE_TAG}"
@@ -213,7 +216,7 @@ jobs:
 
       - name: Create and push multi-arch manifest
         env:
-          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
           VERSION_ID: ${{ needs.prepare.outputs.version_id }}
           DATE_TAG: ${{ needs.prepare.outputs.current_date }}
           BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
@@ -223,14 +226,13 @@ jobs:
 
           # タグリストの生成
           if [ "$BRANCH_NAME" = "main" ]; then
-            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-base"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:base"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}-base"
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}"
             TAGS="${TAGS} ${REGISTRY_PREFIX}:latest"
           else
-            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-base"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:${BRANCH_NAME}-base"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}-base"
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:${BRANCH_NAME}"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}"
           fi
 
           echo "Creating multi-arch manifest with tags: ${TAGS}"
@@ -254,7 +256,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          PACKAGE_NAME="${{ env.IMAGE_NAME }}"
+          PACKAGE_NAME="${{ env.FEDORA_IMAGE_NAME }}"
 
           for arch in amd64 arm64; do
             TAG="_build-${{ github.run_id }}-base-${arch}"
@@ -297,18 +299,18 @@ jobs:
           VERSION_ID: ${{ needs.prepare.outputs.version_id }}
           DATE_TAG: ${{ needs.prepare.outputs.current_date }}
           BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
-          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.asahi_registry_prefix }}
         run: |
           if [ "$BRANCH_NAME" = "main" ]; then
             # GA タグ（ブランチ名なし）
-            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-asahi"
-            TAGS="${TAGS},${REGISTRY_PREFIX}:asahi"
-            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-asahi"
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:latest"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}"
           else
             # ブランチ名含む
-            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-asahi"
-            TAGS="${TAGS},${REGISTRY_PREFIX}:${BRANCH_NAME}-asahi"
-            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}-asahi"
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${BRANCH_NAME}"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}"
           fi
 
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
