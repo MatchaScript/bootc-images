@@ -1,0 +1,351 @@
+name: Build bootc containers
+
+on:
+  schedule:
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "Build type to execute"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - base
+          - asahi
+      push_images:
+        description: "Push images to registry"
+        required: true
+        default: false
+        type: boolean
+      target_registry:
+        description: "Target registry (override default)"
+        required: false
+        type: string
+        default: "ghcr.io"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: fedora-bootc
+  BOOTC_BASE: "quay.io/fedora/fedora-bootc:latest"
+
+jobs:
+  prepare:
+    name: Prepare Build Environment
+    runs-on: ubuntu-24.04
+    outputs:
+      current_date: ${{ steps.set_date.outputs.current_date }}
+      version_id: ${{ steps.get_version.outputs.version_id }}
+      branch_name: ${{ steps.set_branch.outputs.branch_name }}
+      registry_prefix: ${{ steps.set_registry.outputs.registry_prefix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install newer podman (from Debian trixie)
+        run: |
+          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Set current date
+        id: set_date
+        env:
+          TZ: "Asia/Tokyo"
+        run: echo "current_date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+      - name: Get VERSION_ID from bootc base image
+        id: get_version
+        run: |
+          VERSION_ID=$(podman run --rm ${{ env.BOOTC_BASE }} cat /etc/os-release | grep '^VERSION_ID=' | cut -d= -f2 | tr -d '"' 2>/dev/null || echo "")
+
+          if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "unknown" ]; then
+            VERSION_ID=$(podman inspect ${{ env.BOOTC_BASE }} --format='{{index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || echo "rawhide")
+          fi
+
+          if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "<no value>" ] || [ "$VERSION_ID" = "unknown" ]; then
+            echo "Warning: Could not detect VERSION_ID, using 'rawhide'"
+            VERSION_ID="rawhide"
+          fi
+
+          echo "version_id=$VERSION_ID" >> $GITHUB_OUTPUT
+          echo "Detected VERSION_ID: $VERSION_ID"
+
+      - name: Set branch name
+        id: set_branch
+        run: |
+          BRANCH_NAME="${{ github.ref_name }}"
+          echo "branch_name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "Current branch: $BRANCH_NAME"
+
+      - name: Set registry prefix
+        id: set_registry
+        run: |
+          REGISTRY="${{ inputs.target_registry || 'ghcr.io' }}"
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "registry_prefix=${REGISTRY}/${OWNER}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
+
+  build-base:
+    name: Build base bootc image (amd64)
+    runs-on: ubuntu-24.04
+    needs: prepare
+    if: ${{ inputs.build_type == 'all' || inputs.build_type == 'base' || github.event_name == 'schedule' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install newer podman (from Debian trixie)
+        run: |
+          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Build base image (podman)
+        run: |
+          sudo podman build \
+            --platform linux/amd64 \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --tag temp-base-amd64 \
+            -f base.Containerfile \
+            .
+
+      - name: Rechunk base image
+        run: |
+          sudo podman run \
+            --rm --privileged \
+            --security-opt=label=disable \
+            -v /var/lib/containers:/var/lib/containers:z \
+            quay.io/centos-bootc/centos-bootc:stream10 \
+            /usr/libexec/bootc-base-imagectl rechunk \
+            localhost/temp-base-amd64:latest localhost/rechunked-temp-base-amd64:latest
+          sudo podman tag localhost/rechunked-temp-base-amd64:latest localhost/temp-base-amd64:latest
+          sudo podman rmi localhost/rechunked-temp-base-amd64:latest
+
+      - name: Login to registry
+        if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login -u "${{ github.actor }}" --password-stdin ${{ inputs.target_registry || env.REGISTRY }}
+
+      - name: Push intermediate image
+        if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
+        env:
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+        run: |
+          INTERMEDIATE_TAG="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-amd64"
+          sudo podman tag temp-base-amd64 "${INTERMEDIATE_TAG}"
+          sudo podman push "${INTERMEDIATE_TAG}"
+          echo "Pushed intermediate image: ${INTERMEDIATE_TAG}"
+
+  build-base-arm64:
+    name: Build base bootc image (arm64)
+    runs-on: ubuntu-24.04-arm
+    needs: prepare
+    if: ${{ inputs.build_type == 'all' || inputs.build_type == 'base' || github.event_name == 'schedule' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install newer podman (from Debian trixie)
+        run: |
+          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Build base image (podman)
+        run: |
+          sudo podman build \
+            --platform linux/arm64 \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --tag temp-base-arm64 \
+            -f base.Containerfile \
+            .
+
+      - name: Rechunk base image
+        run: |
+          sudo podman run \
+            --rm --privileged \
+            --security-opt=label=disable \
+            -v /var/lib/containers:/var/lib/containers:z \
+            quay.io/centos-bootc/centos-bootc:stream10 \
+            /usr/libexec/bootc-base-imagectl rechunk \
+            localhost/temp-base-arm64:latest localhost/rechunked-temp-base-arm64:latest
+          sudo podman tag localhost/rechunked-temp-base-arm64:latest localhost/temp-base-arm64:latest
+          sudo podman rmi localhost/rechunked-temp-base-arm64:latest
+
+      - name: Login to registry
+        if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login -u "${{ github.actor }}" --password-stdin ${{ inputs.target_registry || env.REGISTRY }}
+
+      - name: Push intermediate image
+        if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
+        env:
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+        run: |
+          INTERMEDIATE_TAG="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-arm64"
+          sudo podman tag temp-base-arm64 "${INTERMEDIATE_TAG}"
+          sudo podman push "${INTERMEDIATE_TAG}"
+          echo "Pushed intermediate image: ${INTERMEDIATE_TAG}"
+
+  manifest-base:
+    name: Create multi-arch manifest for base
+    runs-on: ubuntu-24.04
+    needs: [prepare, build-base, build-base-arm64]
+    if: ${{ (inputs.build_type == 'all' || inputs.build_type == 'base' || github.event_name == 'schedule') && (inputs.push_images == true || github.event_name == 'schedule') }}
+    steps:
+      - name: Install newer podman (from Debian trixie)
+        run: |
+          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Login to registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login -u "${{ github.actor }}" --password-stdin ${{ inputs.target_registry || env.REGISTRY }}
+
+      - name: Create and push multi-arch manifest
+        env:
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
+          DATE_TAG: ${{ needs.prepare.outputs.current_date }}
+          BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
+        run: |
+          AMD64_IMAGE="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-amd64"
+          ARM64_IMAGE="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-arm64"
+
+          # タグリストの生成
+          if [ "$BRANCH_NAME" = "main" ]; then
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-base"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:base"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}-base"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:latest"
+          else
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-base"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:${BRANCH_NAME}-base"
+            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}-base"
+          fi
+
+          echo "Creating multi-arch manifest with tags: ${TAGS}"
+
+          # マニフェストの作成
+          sudo podman manifest create base-manifest
+          sudo podman manifest add base-manifest "docker://${AMD64_IMAGE}"
+          sudo podman manifest add base-manifest "docker://${ARM64_IMAGE}"
+
+          # 各タグでプッシュ
+          for tag in ${TAGS}; do
+            echo "Pushing manifest as: ${tag}"
+            sudo podman manifest push base-manifest "docker://${tag}"
+          done
+
+          # ローカルマニフェストのクリーンアップ
+          sudo podman manifest rm base-manifest
+
+      - name: Cleanup intermediate images from registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          PACKAGE_NAME="${{ env.IMAGE_NAME }}"
+
+          for arch in amd64 arm64; do
+            TAG="_build-${{ github.run_id }}-base-${arch}"
+
+            # 中間タグに対応するパッケージバージョンIDを取得
+            VERSION_ID=$(gh api \
+              "/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions" \
+              --paginate --jq ".[] | select(.metadata.container.tags[] == \"${TAG}\") | .id" \
+              2>/dev/null || echo "")
+
+            if [ -n "$VERSION_ID" ]; then
+              echo "Deleting intermediate image: ${TAG} (version ID: ${VERSION_ID})"
+              gh api \
+                --method DELETE \
+                "/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions/${VERSION_ID}" \
+                2>/dev/null || echo "Warning: Failed to delete ${TAG}"
+            else
+              echo "Warning: Could not find version ID for tag ${TAG}, skipping cleanup"
+            fi
+          done
+
+  build-asahi:
+    name: Build asahi bootc image (arm64)
+    runs-on: ubuntu-24.04-arm
+    needs: prepare
+    if: ${{ inputs.build_type == 'all' || inputs.build_type == 'asahi' || github.event_name == 'schedule' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install newer podman (from Debian trixie)
+        run: |
+          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Generate Tags for asahi
+        id: tags
+        env:
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
+          DATE_TAG: ${{ needs.prepare.outputs.current_date }}
+          BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.registry_prefix }}
+        run: |
+          if [ "$BRANCH_NAME" = "main" ]; then
+            # GA タグ（ブランチ名なし）
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-asahi"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:asahi"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-asahi"
+          else
+            # ブランチ名含む
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-asahi"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${BRANCH_NAME}-asahi"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}-asahi"
+          fi
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "Generated tags: $TAGS"
+
+      - name: Build asahi image (podman)
+        run: |
+          sudo podman build \
+            --platform linux/arm64 \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --tag temp-asahi \
+            -f asahi.Containerfile \
+            .
+
+      - name: Rechunk asahi image
+        run: |
+          sudo podman run \
+            --rm --privileged \
+            --security-opt=label=disable \
+            -v /var/lib/containers:/var/lib/containers:z \
+            quay.io/centos-bootc/centos-bootc:stream10 \
+            /usr/libexec/bootc-base-imagectl rechunk \
+            localhost/temp-asahi:latest localhost/rechunked-temp-asahi:latest
+          sudo podman tag localhost/rechunked-temp-asahi:latest localhost/temp-asahi:latest
+          sudo podman rmi localhost/rechunked-temp-asahi:latest
+
+      - name: Login to registry
+        if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login -u "${{ github.actor }}" --password-stdin ${{ inputs.target_registry || env.REGISTRY }}
+
+      - name: Tag and Push images
+        if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
+        run: |
+          for tag in $(echo "${{ steps.tags.outputs.tags }}" | tr ',' ' '); do
+            sudo podman tag temp-asahi ${tag}
+            sudo podman push ${tag}
+          done
