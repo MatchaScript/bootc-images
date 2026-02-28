@@ -1,0 +1,65 @@
+name: PR Build Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "*.Containerfile"
+      - "overlay.d/**"
+      - ".github/workflows/pr-build-test.yml"
+
+permissions:
+  contents: read
+
+env:
+  BOOTC_BASE: "quay.io/fedora/fedora-bootc:latest"
+
+jobs:
+  build-test:
+    name: "Build ${{ matrix.name }}"
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: base (amd64)
+            containerfile: base.Containerfile
+            platform: linux/amd64
+            runner: ubuntu-24.04
+          - name: base (arm64)
+            containerfile: base.Containerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - name: asahi (arm64)
+            containerfile: asahi.Containerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - name: hyper-v (amd64)
+            containerfile: hyper-v.Containerfile
+            platform: linux/amd64
+            runner: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install newer podman (from Debian trixie)
+        run: |
+          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Build image
+        run: |
+          sudo podman build \
+            --platform ${{ matrix.platform }} \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --tag test-${{ github.event.pull_request.number }} \
+            -f ${{ matrix.containerfile }} \
+            .
+
+      - name: Verify image
+        run: |
+          sudo podman inspect test-${{ github.event.pull_request.number }}
+          echo "✅ Build succeeded: ${{ matrix.name }}"
