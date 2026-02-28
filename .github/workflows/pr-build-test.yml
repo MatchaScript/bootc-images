@@ -49,6 +49,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
+      - name: Build base image if needed
+        if: matrix.name == 'hyper-v (amd64)'
+        run: |
+          sudo podman build \
+            --platform linux/amd64 \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --tag ghcr.io/matchascript/fedora-bootc:base-amd64 \
+            -f base.Containerfile \
+            .
+
       - name: Build image
         run: |
           sudo podman build \
