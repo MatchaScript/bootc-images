@@ -50,7 +50,9 @@ jobs:
 
       - name: Install newer podman (from Debian trixie)
         run: |
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring
+          echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
@@ -103,7 +105,9 @@ jobs:
 
       - name: Install newer podman (from Debian trixie)
         run: |
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring
+          echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
@@ -156,7 +160,9 @@ jobs:
 
       - name: Install newer podman (from Debian trixie)
         run: |
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring
+          echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
@@ -206,7 +212,9 @@ jobs:
     steps:
       - name: Install newer podman (from Debian trixie)
         run: |
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring
+          echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
@@ -289,7 +297,9 @@ jobs:
 
       - name: Install newer podman (from Debian trixie)
         run: |
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get update
+          sudo apt-get install -y debian-archive-keyring
+          echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
