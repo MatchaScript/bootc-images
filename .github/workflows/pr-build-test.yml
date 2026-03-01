@@ -44,9 +44,22 @@ jobs:
 
       - name: Install newer podman (from Debian trixie)
         run: |
-          echo 'deb [trusted=yes] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
+          sudo apt-get install -y debian-archive-keyring
+          echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Build base image if needed
+        if: matrix.name == 'hyper-v (amd64)'
+        run: |
+          sudo podman build \
+            --platform linux/amd64 \
+            --security-opt=label=disable \
+            --cap-add=all \
+            --device /dev/fuse \
+            --tag ghcr.io/matchascript/fedora-bootc:base-amd64 \
+            -f base.Containerfile \
+            .
 
       - name: Build image
         run: |
