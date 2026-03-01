@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+# shellcheck disable=SC1091
 [ -f /etc/sysconfig/update-m1n1 ] && . /etc/sysconfig/update-m1n1
 
 : "${M1N1:=/usr/lib/asahi-boot/m1n1.bin}"
@@ -16,6 +17,7 @@ TARGETS=(
 )
 
 if [ -z "${KVER:-}" ]; then
+    # shellcheck disable=SC2012
     KVER=$(ls /lib/modules/ | sort -V | tail -n1)
 fi
 
@@ -50,7 +52,7 @@ trap 'rm -rf "$WORK_DIR"' EXIT
 M1N1_CONFIG_TMP="$WORK_DIR/m1n1.conf"
 OUT_TMP="$WORK_DIR/boot.bin.tmp"
 
-> "$M1N1_CONFIG_TMP"
+: > "$M1N1_CONFIG_TMP"
 
 if [ -f "$CONFIG" ]; then
     echo "Reading m1n1 config from $CONFIG:"

@@ -15,6 +15,18 @@ env:
   BOOTC_BASE: "quay.io/fedora/fedora-bootc:latest"
 
 jobs:
+  shellcheck:
+    name: Run ShellCheck
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          find overlay.d -name "*.sh" -exec shellcheck {} +
+
   build-test:
     name: "Build ${{ matrix.name }}"
     runs-on: ${{ matrix.runner }}
@@ -77,3 +89,12 @@ jobs:
         run: |
           sudo podman inspect test-${{ github.event.pull_request.number }}
           echo "✅ Build succeeded: ${{ matrix.name }}"
+
+      - name: Verify Asahi Linux artifacts
+        if: matrix.name == 'asahi (arm64)'
+        run: |
+          echo "Checking Asahi specific artifacts..."
+          sudo podman run --rm test-${{ github.event.pull_request.number }} test -s /usr/share/m1n1/universal-boot.bin
+          sudo podman run --rm test-${{ github.event.pull_request.number }} test -s /usr/lib/asahi-boot/m1n1.bin
+          sudo podman run --rm test-${{ github.event.pull_request.number }} test -s /usr/lib/asahi-boot/u-boot-nodtb.bin
+          echo "✅ Asahi specific build verification succeeded"
