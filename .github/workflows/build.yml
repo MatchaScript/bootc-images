@@ -109,6 +109,26 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
+      - name: Generate Tags for base (amd64)
+        id: tags
+        env:
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
+          DATE_TAG: ${{ needs.prepare.outputs.current_date }}
+          BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
+        run: |
+          if [ "$BRANCH_NAME" = "main" ]; then
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-amd64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-amd64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:latest-amd64"
+          else
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-amd64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${BRANCH_NAME}-amd64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}-amd64"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "Generated tags: $TAGS"
+
       - name: Build base image (podman)
         run: |
           sudo podman build \
@@ -137,15 +157,14 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login -u "${{ github.actor }}" --password-stdin ${{ inputs.target_registry || env.REGISTRY }}
 
-      - name: Push intermediate image
+      - name: Tag and push amd64 image
         if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
-        env:
-          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
         run: |
-          INTERMEDIATE_TAG="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-amd64"
-          sudo podman tag temp-base-amd64 "${INTERMEDIATE_TAG}"
-          sudo podman push "${INTERMEDIATE_TAG}"
-          echo "Pushed intermediate image: ${INTERMEDIATE_TAG}"
+          for tag in $(echo "${{ steps.tags.outputs.tags }}" | tr ',' ' '); do
+            sudo podman tag temp-base-amd64 "${tag}"
+            sudo podman push "${tag}"
+            echo "Pushed: ${tag}"
+          done
 
   build-base-arm64:
     name: Build base bootc image (arm64)
@@ -162,6 +181,26 @@ jobs:
           echo 'deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] https://ftp.debian.org/debian/ trixie main' | sudo tee /etc/apt/sources.list.d/trixie.list
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
+
+      - name: Generate Tags for base (arm64)
+        id: tags
+        env:
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
+          DATE_TAG: ${{ needs.prepare.outputs.current_date }}
+          BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
+          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
+        run: |
+          if [ "$BRANCH_NAME" = "main" ]; then
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-arm64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-arm64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:latest-arm64"
+          else
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-arm64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${BRANCH_NAME}-arm64"
+            TAGS="${TAGS},${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}-arm64"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+          echo "Generated tags: $TAGS"
 
       - name: Build base image (podman)
         run: |
@@ -191,15 +230,14 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login -u "${{ github.actor }}" --password-stdin ${{ inputs.target_registry || env.REGISTRY }}
 
-      - name: Push intermediate image
+      - name: Tag and push arm64 image
         if: ${{ inputs.push_images == true || github.event_name == 'schedule' }}
-        env:
-          REGISTRY_PREFIX: ${{ needs.prepare.outputs.fedora_registry_prefix }}
         run: |
-          INTERMEDIATE_TAG="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-arm64"
-          sudo podman tag temp-base-arm64 "${INTERMEDIATE_TAG}"
-          sudo podman push "${INTERMEDIATE_TAG}"
-          echo "Pushed intermediate image: ${INTERMEDIATE_TAG}"
+          for tag in $(echo "${{ steps.tags.outputs.tags }}" | tr ',' ' '); do
+            sudo podman tag temp-base-arm64 "${tag}"
+            sudo podman push "${tag}"
+            echo "Pushed: ${tag}"
+          done
 
   manifest-base:
     name: Create multi-arch manifest for base
@@ -225,21 +263,19 @@ jobs:
           DATE_TAG: ${{ needs.prepare.outputs.current_date }}
           BRANCH_NAME: ${{ needs.prepare.outputs.branch_name }}
         run: |
-          AMD64_IMAGE="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-amd64"
-          ARM64_IMAGE="${REGISTRY_PREFIX}:_build-${{ github.run_id }}-base-arm64"
-
-          # タグリストの生成
+          # アーキテクチャ別の永続タグを参照
           if [ "$BRANCH_NAME" = "main" ]; then
-            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:latest"
+            AMD64_IMAGE="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-amd64"
+            ARM64_IMAGE="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-arm64"
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG} ${REGISTRY_PREFIX}:${VERSION_ID} ${REGISTRY_PREFIX}:latest"
           else
-            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:${BRANCH_NAME}"
-            TAGS="${TAGS} ${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}"
+            AMD64_IMAGE="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-amd64"
+            ARM64_IMAGE="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME}-arm64"
+            TAGS="${REGISTRY_PREFIX}:${VERSION_ID}.${DATE_TAG}-${BRANCH_NAME} ${REGISTRY_PREFIX}:${BRANCH_NAME} ${REGISTRY_PREFIX}:${VERSION_ID}-${BRANCH_NAME}"
           fi
 
-          echo "Creating multi-arch manifest with tags: ${TAGS}"
+          echo "Creating multi-arch manifest from: ${AMD64_IMAGE}, ${ARM64_IMAGE}"
+          echo "Manifest tags: ${TAGS}"
 
           # マニフェストの作成
           sudo podman manifest create base-manifest
@@ -254,33 +290,6 @@ jobs:
 
           # ローカルマニフェストのクリーンアップ
           sudo podman manifest rm base-manifest
-
-      - name: Cleanup intermediate images from registry
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          PACKAGE_NAME="${{ env.FEDORA_IMAGE_NAME }}"
-
-          for arch in amd64 arm64; do
-            TAG="_build-${{ github.run_id }}-base-${arch}"
-
-            # 中間タグに対応するパッケージバージョンIDを取得
-            VERSION_ID=$(gh api \
-              "/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions" \
-              --paginate --jq ".[] | select(.metadata.container.tags[] == \"${TAG}\") | .id" \
-              2>/dev/null || echo "")
-
-            if [ -n "$VERSION_ID" ]; then
-              echo "Deleting intermediate image: ${TAG} (version ID: ${VERSION_ID})"
-              gh api \
-                --method DELETE \
-                "/users/${OWNER}/packages/container/${PACKAGE_NAME}/versions/${VERSION_ID}" \
-                2>/dev/null || echo "Warning: Failed to delete ${TAG}"
-            else
-              echo "Warning: Could not find version ID for tag ${TAG}, skipping cleanup"
-            fi
-          done
 
   build-asahi:
     name: Build asahi bootc image (arm64)
