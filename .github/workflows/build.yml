@@ -130,12 +130,15 @@ jobs:
           echo "Generated tags: $TAGS"
 
       - name: Build base image (podman)
+        env:
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
         run: |
           sudo podman build \
             --platform linux/amd64 \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --build-arg VERSION_ID="${VERSION_ID}" \
             --tag temp-base-amd64 \
             -f base.Containerfile \
             .
@@ -203,12 +206,15 @@ jobs:
           echo "Generated tags: $TAGS"
 
       - name: Build base image (podman)
+        env:
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
         run: |
           sudo podman build \
             --platform linux/arm64 \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --build-arg VERSION_ID="${VERSION_ID}" \
             --tag temp-base-arm64 \
             -f base.Containerfile \
             .
@@ -331,12 +337,15 @@ jobs:
           echo "Generated tags: $TAGS"
 
       - name: Build asahi image (podman)
+        env:
+          VERSION_ID: ${{ needs.prepare.outputs.version_id }}
         run: |
           sudo podman build \
             --platform linux/arm64 \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --build-arg VERSION_ID="${VERSION_ID}" \
             --tag temp-asahi \
             -f asahi.Containerfile \
             .

@@ -61,19 +61,40 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y crun/trixie podman/trixie
 
+      - name: Get VERSION_ID from bootc base image
+        id: get_version
+        run: |
+          VERSION_ID=$(sudo podman run --rm ${{ env.BOOTC_BASE }} cat /etc/os-release | grep '^VERSION_ID=' | cut -d= -f2 | tr -d '"' 2>/dev/null || echo "")
+
+          if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "unknown" ]; then
+            VERSION_ID=$(sudo podman inspect ${{ env.BOOTC_BASE }} --format='{{index .Config.Labels "org.opencontainers.image.version"}}' 2>/dev/null || echo "rawhide")
+          fi
+
+          if [ -z "$VERSION_ID" ] || [ "$VERSION_ID" = "<no value>" ] || [ "$VERSION_ID" = "unknown" ]; then
+            VERSION_ID="rawhide"
+          fi
+
+          echo "version_id=$VERSION_ID" >> $GITHUB_OUTPUT
+          echo "Detected VERSION_ID: $VERSION_ID"
+
       - name: Build base image if needed
         if: matrix.name == 'hyper-v (amd64)'
+        env:
+          VERSION_ID: ${{ steps.get_version.outputs.version_id }}
         run: |
           sudo podman build \
             --platform linux/amd64 \
             --security-opt=label=disable \
             --cap-add=all \
             --device /dev/fuse \
+            --build-arg VERSION_ID="${VERSION_ID}" \
             --tag ghcr.io/matchascript/fedora-bootc:base-amd64 \
             -f base.Containerfile \
             .
 
       - name: Build image
+        env:
+          VERSION_ID: ${{ steps.get_version.outputs.version_id }}
         run: |
           sudo podman build \
             --platform ${{ matrix.platform }} \
@@ -81,6 +102,7 @@ jobs:
             --cap-add=all \
             --device /dev/fuse \
             --build-arg BOOTC_BASE=${{ env.BOOTC_BASE }} \
+            --build-arg VERSION_ID="${VERSION_ID}" \
             --tag test-${{ github.event.pull_request.number }} \
             -f ${{ matrix.containerfile }} \
             .

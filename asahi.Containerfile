@@ -13,6 +13,7 @@ RUN sed -i 's/kernel/kernel-16k/g' /usr/share/doc/bootc-base-imagectl/manifests/
 RUN /usr/libexec/bootc-base-imagectl build-rootfs --manifest=asahi /target-rootfs
 
 FROM scratch
+ARG VERSION_ID
 COPY --from=builder /target-rootfs/ /
 COPY overlay.d/01-common/ /
 COPY overlay.d/50-asahi/ /
@@ -21,9 +22,10 @@ bash /opt/bin/update-m1n1-bootc.sh
 dnf clean all && rm -rf /var/cache/dnf
 bootc container lint
 EOF
-    
+
 LABEL containers.bootc 1
 LABEL ostree.bootable 1
+LABEL org.opencontainers.image.version="${VERSION_ID}"
 
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]
