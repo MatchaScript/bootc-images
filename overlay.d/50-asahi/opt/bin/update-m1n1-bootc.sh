@@ -109,8 +109,13 @@ mkdir -p "$(dirname "$OUT")"
 mv "$OUT_TMP" "$OUT"
 chmod 644 "$OUT"
 
+OUT_HASH=$(sha256sum "$OUT" | awk '{print $1}')
+printf '%s  %s\n' "$OUT_HASH" "$(basename "$OUT")" > "${OUT}.sha256"
+chmod 644 "${OUT}.sha256"
+
 echo "---------------------------------------------------"
 echo "Success! Custom m1n1 binary created:"
-echo "  Path: $OUT"
-echo "  Size: $(du -h "$OUT" | cut -f1)"
+echo "  Path:   $OUT"
+echo "  Size:   $(du -h "$OUT" | cut -f1)"
+echo "  SHA256: $OUT_HASH"
 echo "---------------------------------------------------"
